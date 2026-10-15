@@ -15,6 +15,7 @@ Uso:
   python dgt_citas.py --centro-id 546                # una comprobación (Sabadell)
   python dgt_citas.py --centro-id 546,545,530        # varias oficinas en una ronda 
   python dgt_citas.py --centro Sabadell,Barcelona --vigilar --cada 10
+  python dgt_citas.py --centro-id 546 --latido       # además avisa de "comprobado, sin citas"
   python dgt_citas.py --probar-aviso                 # envía un aviso de prueba
 
 Avisos (variables de entorno; si no pones ninguna, solo se escribe en pantalla):
@@ -35,6 +36,7 @@ import time
 import unicodedata
 from datetime import datetime
 from email.message import EmailMessage
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
@@ -303,14 +305,14 @@ def elegir_centro(dgt, texto):
     return candidatos[0][0], candidatos[0][1], candidatos[0][2]
 
 
-def notificar(asunto, cuerpo):
+def notificar(asunto, cuerpo, prioridad=4):
     """Envía el aviso por los canales configurados. Devuelve True si alguno funcionó."""
     ok = False
     topic = os.environ.get("NTFY_TOPIC", "").strip()
     if topic:
         try:
             r = requests.post("https://ntfy.sh/", timeout=20, json={
-                "topic": topic, "title": asunto, "message": cuerpo, "priority": 4,
+                "topic": topic, "title": asunto, "message": cuerpo, "priority": prioridad,
                 "tags": ["calendar"], "click": URL_INICIO})
             r.raise_for_status()
             print("    Aviso enviado por ntfy.")
@@ -368,8 +370,9 @@ def ejecutar_una_vez(dgt, centro_id, campo, etiqueta, guardar):
 
 
 def ronda(centros, guardar):
-    """Comprueba cada centro con sesión nueva. Devuelve las etiquetas con posible disponibilidad."""
+    """Comprueba cada centro con sesión nueva. Devuelve (libres, estados)."""
     libres = []
+    estados = {}
     for n, (campo, cid, etiqueta) in enumerate(centros):
         if n:
             time.sleep(5)  # pausa entre oficinas para no saturar la web
@@ -377,10 +380,12 @@ def ronda(centros, guardar):
             estado = ejecutar_una_vez(Dgt(), cid, campo, etiqueta, guardar)
         except (requests.RequestException, RuntimeError) as e:
             print("[%s] %s -> error: %s" % (datetime.now().strftime("%H:%M:%S"), etiqueta, e))
+            estados[etiqueta] = "ERROR"
             continue
+        estados[etiqueta] = estado
         if estado == "POSIBLE_DISPONIBILIDAD":
             libres.append(etiqueta)
-    return libres
+    return libres, estados
 
 
 def avisar_libres(libres):
@@ -390,6 +395,22 @@ def avisar_libres(libres):
               % ("\n- ".join(libres), URL_INICIO, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     print("\a", end="")
     notificar(asunto, cuerpo)
+
+
+def enviar_latido(estados):
+    """Avisa de que se ha comprobado y no hay citas (no se envía de 02:00 a 06:00, hora de España)."""
+    ahora = datetime.now(ZoneInfo("Europe/Madrid"))
+    if 2 <= ahora.hour < 6:
+        print("    (Latido omitido: franja nocturna 02:00-06:00 en España.)")
+        return
+    lineas = []
+    for etiqueta, estado in estados.items():
+        txt = {"SIN_CITAS": "sin citas"}.get(estado, "error al comprobar")
+        lineas.append("- %s: %s" % (etiqueta, txt))
+    todo_ok = all(e == "SIN_CITAS" for e in estados.values())
+    asunto = "DGT: sin citas por ahora" if todo_ok else "DGT: comprobado, con incidencias"
+    cuerpo = "Comprobación de las %s (hora España):\n%s" % (ahora.strftime("%H:%M"), "\n".join(lineas))
+    notificar(asunto, cuerpo, prioridad=2)
 
 
 def main():
@@ -402,6 +423,8 @@ def main():
     ap.add_argument("--probar-aviso", action="store_true", help="envía un aviso de prueba y termina")
     ap.add_argument("--guardar-error", action="store_true", help="guarda el HTML cuando hay un error")
     ap.add_argument("--depurar", action="store_true", help="muestra los campos que se envían (ayuda a diagnosticar)")
+    ap.add_argument("--latido", action="store_true",
+                    help="si no hay citas, envía un aviso de que se ha comprobado (no de 02:00 a 06:00 en España)")
     a = ap.parse_args()
     global DEPURAR
     DEPURAR = a.depurar
@@ -441,15 +464,17 @@ def main():
             centros.append((campo, cid, "%s (%s)" % (etiqueta, cid)))
 
     if not a.vigilar:
-        libres = ronda(centros, a.guardar_error)
+        libres, estados = ronda(centros, a.guardar_error)
         if libres:
             avisar_libres(libres)
+        elif a.latido:
+            enviar_latido(estados)
         return
 
     espera = max(a.cada, 5) * 60
     print("Vigilando %d centro(s) cada %.0f min. Ctrl+C para parar." % (len(centros), espera / 60))
     while True:
-        libres = ronda(centros, a.guardar_error)
+        libres, _ = ronda(centros, a.guardar_error)
         if libres:
             avisar_libres(libres)
             break
