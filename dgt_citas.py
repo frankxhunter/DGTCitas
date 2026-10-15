@@ -13,7 +13,7 @@ Requisitos:  pip install requests beautifulsoup4
 Uso:
   python dgt_citas.py --listar                       # lista los centros y sus códigos
   python dgt_citas.py --centro-id 546                # una comprobación (Sabadell)
-  python dgt_citas.py --centro-id 546,545,530        # varias oficinas en una ronda
+  python dgt_citas.py --centro-id 546,545,530        # varias oficinas en una ronda 
   python dgt_citas.py --centro Sabadell,Barcelona --vigilar --cada 10
   python dgt_citas.py --probar-aviso                 # envía un aviso de prueba
 
