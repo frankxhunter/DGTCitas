@@ -1,7 +1,12 @@
 name: Vigilar citas DGT
 
 on:
-  workflow_dispatch:   # lo lanza cron-job.org por API (y tú a mano)
+  workflow_dispatch:
+    inputs:
+      probar_aviso:
+        description: "Enviar solo un aviso de prueba"
+        type: boolean
+        default: false  # lo lanza cron-job.org por API (y tú a mano)
 
 permissions:
   contents: read
@@ -31,7 +36,12 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
+          PROBAR: ${{ inputs.probar_aviso }}
         run: |
+          if [ "$PROBAR" = "true" ]; then
+            python dgt_citas.py --probar-aviso
+            exit 0
+          fi
           MIN=$(TZ=Europe/Madrid date +%-M)
           LATIDO=""
           if [ "$MIN" -lt 10 ]; then LATIDO="--latido"; fi
