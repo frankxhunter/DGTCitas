@@ -10,9 +10,9 @@ name: Vigilar citas DGT
 
 on:
   schedule:
-    - cron: "10,20,30,40,50 * * * *"   # rondas normales (sin latido)
-    - cron: "0 * * * *"                # a en punto: ronda + latido (el script lo omite de 02:00 a 06:00 en España)
-  workflow_dispatch:                   # permite lanzarlo a mano desde la pestaña Actions
+    - cron: "7,17,27,37,47,57 * * * *"   # rondas normales (sin latido)
+    - cron: "2 * * * *"                  # ronda + latido (omitido de 02:00 a 06:00 en España)
+  workflow_dispatch:                # permite lanzarlo a mano desde la pestaña Actions
 
 permissions:
   contents: read
@@ -42,5 +42,5 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
-          LATIDO: ${{ github.event.schedule == '0 * * * *' && '--latido' || '' }}
+          LATIDO: ${{ github.event.schedule == '2 * * * *' && '--latido' || '' }}
         run: python dgt_citas.py --centro-id 546,545 $LATIDO
