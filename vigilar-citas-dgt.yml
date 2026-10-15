@@ -1,0 +1,44 @@
+# Guárdalo en tu repositorio como:  .github/workflows/vigilar-citas-dgt.yml
+# y sube también dgt_citas.py a la raíz del repositorio.
+#
+# Los avisos se configuran en Settings > Secrets and variables > Actions > New repository secret:
+#   NTFY_TOPIC                                  (tema de ntfy.sh, p. ej. una cadena larga y aleatoria)
+#   SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_TO    (opcionales, para recibir también correo)
+# Los que no crees llegan vacíos y el script los ignora.
+
+name: Vigilar citas DGT
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # cada 10 min (GitHub puede retrasarlo unos minutos)
+  workflow_dispatch:          # permite lanzarlo a mano desde la pestaña Actions
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vigilar-citas-dgt
+  cancel-in-progress: false
+
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install requests beautifulsoup4
+
+      - name: Comprobar oficinas (Sabadell y Barcelona)
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python dgt_citas.py --centro-id 546,545
