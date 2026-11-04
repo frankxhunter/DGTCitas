@@ -46,6 +46,7 @@ from bs4 import BeautifulSoup
 BASE = "https://sedeclave.dgt.gob.es/WEB_CITE_CONSULTA/paginas/"
 URL_INICIO = BASE + "inicio.faces"
 URL_CATALOGO = BASE + "catalogo.faces"
+URL_ICONO = "https://raw.githubusercontent.com/frankxhunter/DGTCitas/main/icon_examen.png"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
@@ -316,15 +317,15 @@ def notificar(asunto, cuerpo, prioridad=4):
     topic = os.environ.get("NTFY_TOPIC", "").strip()
     if topic:
         try:
-            r = requests.post("https://ntfy.sh/", timeout=20, json={
+            msg_ntfy = {
                 "topic": topic, "title": asunto, "message": cuerpo, "priority": prioridad,
-                "tags": ["calendar"], "click": URL_INICIO})
+                "tags": ["calendar"], "click": URL_INICIO, "icon": URL_ICONO}
+            r = requests.post("https://ntfy.sh/", timeout=20, json=msg_ntfy)
             r.raise_for_status()
             print("    Aviso enviado por ntfy.")
             ok = True
         except requests.RequestException as e:
             print("    No pude enviar el aviso por ntfy: %s" % e)
-
     host = os.environ.get("SMTP_HOST", "").strip()
     destino = os.environ.get("MAIL_TO", "").strip()
     if host and destino:
