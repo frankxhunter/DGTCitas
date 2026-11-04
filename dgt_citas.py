@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-Comprueba si la cita previa de la DGT (área Conductores) tiene hueco en una
+Comprueba si la cita previa de la DGT (por defecto, área Exámenes de permisos de
+conducir; también vale Conductores con --area CND) tiene hueco en una
 jefatura/oficina. Reproduce el mismo recorrido que haría un navegador:
 
   1. GET  inicio.faces                     -> formulario de centro
   2. POST AJAX (cambio de centro)          -> la web pinta el selector de área
-  3. POST inicio.faces (centro + área CND) -> catálogo de trámites
+  3. POST inicio.faces (centro + área)     -> catálogo de trámites
   4. POST catalogo.faces ("Pedir cita")    -> aviso "sin capacidad" o calendario
 
 Requisitos:  pip install requests beautifulsoup4
 
 Uso:
   python dgt_citas.py --listar                       # lista los centros y sus códigos
-  python dgt_citas.py --centro-id 546                # una comprobación (Sabadell)
+  python dgt_citas.py --centro-id 546                # una comprobación (Sabadell, exámenes)
+  python dgt_citas.py --centro-id 546 --area CND     # igual, pero en el área Conductores
   python dgt_citas.py --centro-id 546,545,530        # varias oficinas en una ronda 
   python dgt_citas.py --centro Sabadell,Barcelona --vigilar --cada 10
   python dgt_citas.py --centro-id 546 --latido       # además avisa de "comprobado, sin citas"
@@ -50,7 +52,9 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 # Nombres de campo vistos en tu HAR (se usan solo si no se detectan en el HTML)
 CAMPO_CENTRO_POR_DEFECTO = "formselectorCentro:j_id_2i"
 CAMPO_AREA = "formselectorCentro:idAreaSelector"
-AREA_CONDUCTORES = "CND"
+# Áreas del selector (valor del <option>): EXM = Exámenes permisos de conducir, CND = Conductores
+AREAS = {"EXM": "Exámenes permisos de conducir", "CND": "Conductores"}
+AREA = "EXM"  # área que se consulta; se cambia con --area
 BOTON_POR_DEFECTO = "formselectorCentro:j_id_2t"
 DEPURAR = False
 
@@ -172,7 +176,7 @@ class Dgt:
                         "Sec-Fetch-User": "?1"})
         return self.s.post(url, data=datos, timeout=30, headers=cab)
 
-    def _ajax_cambio(self, cont, campo, valor, viewstate=None):
+    def _ajax_cambio(self, cont, campo, valor, viewstate=None, evento="change"):
         """Simula jsf.ajax.request(campo, 'change', execute=@this, render=@form)."""
         datos = campos_formulario(cont)
         if viewstate:
@@ -184,8 +188,9 @@ class Dgt:
             "javax.faces.source": campo,
             "javax.faces.partial.execute": campo,
             "javax.faces.partial.render": FORM_ID,
-            "javax.faces.behavior.event": "change",
+            "javax.faces.behavior.event": evento,
             "javax.faces.partial.event": "change",
+            FORM_ID: FORM_ID,  # el navegador también manda el id del formulario
         })
         r = self._post(URL_INICIO, datos, URL_INICIO, ajax=True)
         r.raise_for_status()
@@ -232,7 +237,7 @@ class Dgt:
         ctrl = control_area(cont)
         if ctrl is not None and "jsf.ajax.request" in (ctrl.get("onchange") or ""):
             # El área también dispara AJAX al elegirla: lo reproducimos
-            cont2, vs2, _ = self._ajax_cambio(cont, ctrl["name"], AREA_CONDUCTORES, viewstate)
+            cont2, vs2, _ = self._ajax_cambio(cont, ctrl["name"], AREA, viewstate, evento="valueChange")
             viewstate = vs2 or viewstate
             if cont2.find(["input", "select", "button"]):
                 cont = cont2
@@ -246,7 +251,7 @@ class Dgt:
         datos["javax.faces.ViewState"] = viewstate or ""
         datos[campo_centro] = centro_id
         ctrl = control_area(cont)
-        datos[ctrl["name"] if ctrl is not None else CAMPO_AREA] = AREA_CONDUCTORES
+        datos[ctrl["name"] if ctrl is not None else CAMPO_AREA] = AREA
         datos["formselectorCentro_SUBMIT"] = "1"
         boton = boton_envio(cont) or (BOTON_POR_DEFECTO, "")
         datos[boton[0]] = boton[1]
@@ -271,7 +276,7 @@ class Dgt:
                     detalle.append("Mensaje en la página: " + txt[:200])
             return "ERROR", detalle, r.text
 
-        # 4) "Pedir cita" del primer trámite (Trámites de conductores)
+        # 4) "Pedir cita" del primer trámite del catálogo del área elegida
         m = re.search(r"submitForm\('tramites','(tramites:items:\d+:[^']+)'\)", r.text)
         if not m:
             return "ERROR", ["No encuentro el botón 'Pedir cita' en el catálogo"], r.text
@@ -390,9 +395,10 @@ def ronda(centros, guardar):
 
 def avisar_libres(libres):
     asunto = "DGT: posible cita libre en %s" % ", ".join(libres)
-    cuerpo = ("La comprobación automática no ha mostrado el aviso de 'sin capacidad' en:\n- %s\n\n"
+    cuerpo = ("La comprobación automática (%s) no ha mostrado el aviso de 'sin capacidad' en:\n- %s\n\n"
               "Puede ser una cita libre: entra cuanto antes y compruébalo:\n%s\n\n(%s)"
-              % ("\n- ".join(libres), URL_INICIO, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+              % (AREAS.get(AREA, AREA), "\n- ".join(libres), URL_INICIO,
+                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     print("\a", end="")
     notificar(asunto, cuerpo)
 
@@ -409,7 +415,8 @@ def enviar_latido(estados):
         lineas.append("- %s: %s" % (etiqueta, txt))
     todo_ok = all(e == "SIN_CITAS" for e in estados.values())
     asunto = "DGT: sin citas por ahora" if todo_ok else "DGT: comprobado, con incidencias"
-    cuerpo = "Comprobación de las %s (hora España):\n%s" % (ahora.strftime("%H:%M"), "\n".join(lineas))
+    cuerpo = "Comprobación de las %s (hora España, %s):\n%s" % (
+        ahora.strftime("%H:%M"), AREAS.get(AREA, AREA), "\n".join(lineas))
     notificar(asunto, cuerpo, prioridad=2)
 
 
@@ -418,6 +425,8 @@ def main():
     ap.add_argument("--listar", action="store_true", help="lista los centros disponibles y termina")
     ap.add_argument("--centro", help="parte del nombre del centro; varios separados por comas")
     ap.add_argument("--centro-id", help="id numérico del centro; varios separados por comas (p. ej. 546,545)")
+    ap.add_argument("--area", choices=sorted(AREAS), default="EXM",
+                    help="área de tramitación: EXM = Exámenes permisos de conducir (por defecto), CND = Conductores")
     ap.add_argument("--vigilar", action="store_true", help="repite la ronda hasta que aparezca disponibilidad")
     ap.add_argument("--cada", type=float, default=10, help="minutos entre rondas al vigilar (mín. 5)")
     ap.add_argument("--probar-aviso", action="store_true", help="envía un aviso de prueba y termina")
@@ -426,8 +435,9 @@ def main():
     ap.add_argument("--latido", action="store_true",
                     help="si no hay citas, envía un aviso de que se ha comprobado (no de 02:00 a 06:00 en España)")
     a = ap.parse_args()
-    global DEPURAR
+    global DEPURAR, AREA
     DEPURAR = a.depurar
+    AREA = a.area
 
     if a.probar_aviso:
         ok = notificar("DGT: aviso de prueba", "Si lees esto, los avisos funcionan.")
