@@ -43,6 +43,7 @@ jobs:
             exit 0
           fi
           MIN=$(TZ=Europe/Madrid date +%-M)
+          HOUR=$(TZ=Europe/Madrid date +%-H)
           LATIDO=""
-          if [ "$MIN" -lt 10 ]; then LATIDO="--latido"; fi
+          if [ "$MIN" -lt 10 ] && [ $((HOUR % 8)) -eq 0 ]; then LATIDO="--latido"; fi
           python dgt_citas.py --centro-id 546,545 $LATIDO
