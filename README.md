@@ -211,7 +211,7 @@ El repositorio incluye un workflow para ejecutarlo automáticamente desde GitHub
 - **Instala dependencias**: `requests`, `beautifulsoup4`
 - **Modo prueba**: Si marcas `probar_aviso = true`, ejecuta `--probar-aviso` y termina.
 - **Modo normal**: Comprueba los centros **546** y **545** (`--centro-id 546,545`)
-- **Latido automático**: Si el minuto actual (`TZ=Europe/Madrid`) es **< 10** y la hora es múltiplo de 8 (**00:00, 08:00 y 16:00**), añade `--latido`. Así envía un "todo OK" si no hay citas **cada 8 horas**.
+- **Latido automático**: Si el minuto actual (`TZ=Europe/Madrid`) es **< 10** y la hora es múltiplo de 8 (**00:00, 08:00 y 16:00**), añade `--latido` **solo si no se ha enviado ya en esa ventana**. El estado se guarda en la caché de Actions (`.latido_enviado`), así que aunque cron-job.org ejecute el workflow cada minuto, recibes **un único aviso cada 8 horas**.
 - **Timeout**: 5 minutos máximo por ejecución.
 - **Concurrencia**: `group: vigilar-citas-dgt` con `cancel-in-progress: false`. Evita lanzar dos ejecuciones simultáneas sin cancelar la que ya está corriendo.
 

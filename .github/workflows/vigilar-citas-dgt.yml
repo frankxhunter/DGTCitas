@@ -29,7 +29,19 @@ jobs:
       - name: Instalar dependencias
         run: pip install requests beautifulsoup4
 
+      - name: Calcular ventana de latido
+        id: ventana
+        run: echo "clave=$(TZ=Europe/Madrid date +%Y%m%d-%H)" >> "$GITHUB_OUTPUT"
+
+      - name: Recuperar estado del latido
+        id: latido
+        uses: actions/cache/restore@v4
+        with:
+          path: .latido_enviado
+          key: latido-${{ steps.ventana.outputs.clave }}
+
       - name: Comprobar oficinas (Sabadell y Barcelona)
+        id: comprobar
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
@@ -45,5 +57,16 @@ jobs:
           MIN=$(TZ=Europe/Madrid date +%-M)
           HOUR=$(TZ=Europe/Madrid date +%-H)
           LATIDO=""
-          if [ "$MIN" -lt 10 ] && [ $((HOUR % 8)) -eq 0 ]; then LATIDO="--latido"; fi
+          if [ "$MIN" -lt 10 ] && [ $((HOUR % 8)) -eq 0 ] && [ "${{ steps.latido.outputs.cache-hit }}" != "true" ]; then
+            LATIDO="--latido"
+            echo "enviado=1" >> "$GITHUB_OUTPUT"
+            touch .latido_enviado
+          fi
           python dgt_citas.py --centro-id 546,545 $LATIDO
+
+      - name: Guardar estado del latido
+        if: steps.comprobar.outputs.enviado == '1'
+        uses: actions/cache/save@v4
+        with:
+          path: .latido_enviado
+          key: latido-${{ steps.ventana.outputs.clave }}
